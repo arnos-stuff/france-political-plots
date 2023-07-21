@@ -1,0 +1,1 @@
+web: gunicorn france_political_plots.server.government_spending:server
