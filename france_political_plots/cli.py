@@ -4,7 +4,8 @@ import os
 
 
 from .server.government_spending import Dashboard as gvt_spend
-from .utils import Config, Pkg, Root, Path, error, log, powershell
+from .server.polling_stations import Dashboard as pollstat
+from .utils import Config, Pkg, Root, Path, error, log, powershell, cout
 
 cli = typer.Typer(
     name='fr-pol-plots',
@@ -24,9 +25,13 @@ def serve(
 
     name = config.find_project(project)
     
+    cout.log(f"Found: {project} --> {name}")
+    
     match name:
         case 'lfi-spending':
             app = gvt_spend.make()
+        case 'volt-scores':
+            app = pollstat.make()
         case _:
             app = gvt_spend.make()
             

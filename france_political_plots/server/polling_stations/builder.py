@@ -1,10 +1,14 @@
 from dash import Dash, dcc, html, Input, Output, callback
 from typing import Self, List, Dict, Any
+import json
+import pandas as pd
 import dash_ag_grid as dag
 import dash_mantine_components as dmc
 import dash_iconify as dic
-from ..data.government_spending import GovernmentSpending
-from ..utils import Pkg, Assets
+import plotly.io as pio
+import plotly.express as px
+import plotly.graph_objects as go
+from ...utils import Pkg, Assets, download, progress, cout,get_each, spinner
 
 FULL_SIZE_STYLE = {
     'width':'100vw',
@@ -20,12 +24,31 @@ class Dashboard:
         return cls
     
     @classmethod
-    def make(cls):
-        data = GovernmentSpending()
-        before, after = data.spending_change(kind='scatter')
-        line_before, line_after = data.spending_change(kind='line')
-        df = data.df.dropna(subset=['spending'])
+    def make(cls) -> Dash:
+        plot_numbers = list(range(10))
+        url = lambda num: f"https://github.com/arnos-stuff/bureaux-vote-postgis/releases/download/v0.0.3/plot.scores.bureaux.map.part.{num}.json.zip"
+        metadata_url = "https://github.com/arnos-stuff/bureaux-vote-postgis/releases/download/v0.0.3/plot.scoring.metadata.table.csv.zip"
+        urls = [url(i) for i in plot_numbers]
         
+        datas = []
+        for raw in get_each(urls = urls):
+            datas += [
+                json.loads(raw)
+            ]
+        figs = []
+        load = progress.add_task(description="Loading...", filename="Loading unzipped files..", total=len(datas))
+        with progress:
+            for js in datas:
+                if isinstance(js, str):
+                    js = json.loads(js)
+                figs += [
+                    go.Figure(js)
+                ]
+                progress.advance(load)
+
+        progress.remove_task(load)
+        metadata = pd.read_csv(metadata_url)
+                        
         external_stylesheets = [
             'https://codepen.io/chriddyp/pen/bWLwgP.css',
             "https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap",
@@ -55,14 +78,14 @@ class Dashboard:
                 'sortable': True, 
                 'headerName': col
                 } 
-            for col in df.columns
+            for col in metadata.columns
         ]
         
-        
+        cout.log("Building AG-Grid...")
         
         grid = dag.AgGrid(
             columnDefs=columnDefs,
-            rowData=df.to_dict('records'),
+            rowData=metadata.to_dict('records'),
             className='ag-theme-material',
             defaultColDef=defaultColDef,
             columnSize="sizeToFit",
@@ -77,53 +100,26 @@ class Dashboard:
             
         )
         def func(n_clicks):
-            return dcc.send_data_frame(df.to_csv, "government-spending.csv")
+            return dcc.send_data_frame(metadata.to_csv, "government-spending.csv")
         
         components = html.Div([
             dcc.Tabs([
-                dcc.Tab(label='Usual Spending', children=[
-                    html.Div([
-                        dcc.Graph(
-                        figure=before,
-                        style=FULL_SIZE_STYLE,
-                        config=CONFIG
-                    )
-                    ],
-                    style=FULL_SIZE_STYLE
-                    )
-                ]),
-                dcc.Tab(label='Comparison LFI 2022', children=[
-                    html.Div([
-                        dcc.Graph(
-                        figure=after,
-                        style=FULL_SIZE_STYLE,
-                        config=CONFIG
-                    )
-                    ],
-                    style=FULL_SIZE_STYLE
-                    )
-                ]),
-                dcc.Tab(label='Usual Spending per Year', children=[
-                    html.Div([
-                        dcc.Graph(
-                        figure=line_before,
-                        style=FULL_SIZE_STYLE,
-                        config=CONFIG
-                    )
-                    ],
-                    style=FULL_SIZE_STYLE
-                    )
-                ]),
-                dcc.Tab(label='Spending per Year LFI 2022', children=[
-                    html.Div([
-                        dcc.Graph(
-                        figure=line_after,
-                        style=FULL_SIZE_STYLE,
-                        config=CONFIG
-                    )
-                    ],
-                    style=FULL_SIZE_STYLE
-                    )
+                
+                *[
+                    dcc.Tab(label='Usual Spending', children=[
+                        html.Div([
+                            dcc.Graph(
+                            figure=g,
+                            style=FULL_SIZE_STYLE,
+                            config=CONFIG
+                        )
+                        ]
+                        )
+                    ])
+                    for g in figs
+                ]
+                ,
+                
                 ]),
                 dcc.Tab(label='Data', children=[
                     html.Div([
@@ -135,9 +131,8 @@ class Dashboard:
                     )
                 ]),
             ])
-        ],
-        style=FULL_SIZE_STYLE
-        )
+        
+        cout.log("Init layout...")
         
         app.layout = dmc.MantineProvider(
             theme={
@@ -160,7 +155,7 @@ class Dashboard:
                             children=[
                             dmc.Grid([
                                 dmc.Center([
-                                        dmc.Image(width=100, height=100, src="/assets/volt-data.svg"),
+                                        dmc.Image(width=100, height=100, src="../assets/volt-data.svg"),
                                         dmc.Space(w=50),
                                         dmc.Title("France Political Data")
                                     ])
@@ -180,8 +175,7 @@ class Dashboard:
         cls.server = app.server
         cls.app = app
         
+        cout.log("🚀 Starting app !")
+        
         return app
         
-dash = Dashboard()
-dash.make()
-server = dash.app.server
